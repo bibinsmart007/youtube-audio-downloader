@@ -6,13 +6,21 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler
 import yt_dlp
 
-# Invidious public instances as first-try fallback (no bot detection)
+# Updated official Invidious public instances (May 2026)
 INVIDIOUS_INSTANCES = [
     'https://inv.nadeko.net',
     'https://invidious.nerdvpn.de',
-    'https://invidious.privacydev.net',
-    'https://vid.puffyan.us',
-    'https://yt.cdaut.de',
+    'https://inv.thepixora.com',
+    'https://yt.chocolatemoo53.com',
+    'https://invidious.tiekoetter.com',
+    'https://invidious.f5.si',
+]
+
+# Piped API instances (no auth needed, returns audio stream URLs)
+PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://piped-api.garudalinux.org',
+    'https://api.piped.yt',
 ]
 
 # yt-dlp client strategies in priority order
@@ -38,32 +46,63 @@ def _get_video_id(url):
     return None
 
 
+def _fetch_json(url, timeout=8):
+    req = urllib.request.Request(
+        url,
+        headers={'User-Agent': 'Mozilla/5.0 (compatible; AudioBot/1.0)'}
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        if resp.status != 200:
+            return None
+        return json.loads(resp.read())
+
+
 def _extract_via_invidious(video_id):
-    """Try Invidious API - fastest, no bot detection."""
+    """Try Invidious API - no bot detection needed."""
     for instance in INVIDIOUS_INSTANCES:
         try:
-            api_url = f'{instance}/api/v1/videos/{video_id}?fields=adaptiveFormats,title'
-            req = urllib.request.Request(
-                api_url,
-                headers={'User-Agent': 'Mozilla/5.0 (compatible; AudioBot/1.0)'}
+            data = _fetch_json(
+                f'{instance}/api/v1/videos/{video_id}?fields=adaptiveFormats,title'
             )
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                if resp.status != 200:
-                    continue
-                data = json.loads(resp.read())
+            if not data:
+                continue
             title = data.get('title', 'audio')
             best = None
             for fmt in data.get('adaptiveFormats', []):
-                mime = fmt.get('type', '')
-                if mime.startswith('audio/'):
+                if fmt.get('type', '').startswith('audio/'):
                     if best is None or fmt.get('bitrate', 0) > best.get('bitrate', 0):
                         best = fmt
             if best:
                 raw_url = best.get('url', '')
-                # Invidious proxies audio via its own domain
                 stream_url = f'{instance}{raw_url}' if raw_url.startswith('/') else raw_url
                 ext = 'webm' if 'webm' in best.get('type', '') else 'm4a'
                 return stream_url, ext, title
+        except Exception:
+            continue
+    return None, None, None
+
+
+def _extract_via_piped(video_id):
+    """Try Piped API - another no-auth alternative to Invidious."""
+    for instance in PIPED_INSTANCES:
+        try:
+            data = _fetch_json(f'{instance}/streams/{video_id}')
+            if not data:
+                continue
+            title = data.get('title', 'audio')
+            best = None
+            best_bitrate = 0
+            for stream in data.get('audioStreams', []):
+                bitrate = stream.get('bitrate', 0)
+                if bitrate > best_bitrate:
+                    best = stream
+                    best_bitrate = bitrate
+            if best:
+                stream_url = best.get('url', '')
+                mime = best.get('mimeType', '')
+                ext = 'webm' if 'webm' in mime else 'm4a'
+                if stream_url:
+                    return stream_url, ext, title
         except Exception:
             continue
     return None, None, None
@@ -115,7 +154,6 @@ def _extract_via_ytdlp(url, cookie_file=None):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
-            # Find best audio-only format
             stream_url = None
             ext = 'm4a'
             for f in reversed(info.get('formats', [])):
@@ -138,7 +176,7 @@ def _extract_via_ytdlp(url, cookie_file=None):
 
 class handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass  # Suppress access logs
+        pass
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -161,18 +199,24 @@ class handler(BaseHTTPRequestHandler):
             ext = 'm4a'
             title = 'audio'
 
-            # Step 1: Try Invidious (fast, no auth needed)
+            # Step 1: Try Invidious (fast, no auth)
             if video_id:
                 stream_url, ext, title = _extract_via_invidious(video_id)
 
-            # Step 2: Fallback to yt-dlp with multiple client strategies
+            # Step 2: Try Piped API (another no-auth source)
+            if not stream_url and video_id:
+                stream_url, ext, title = _extract_via_piped(video_id)
+
+            # Step 3: Fallback to yt-dlp with multiple client strategies
             if not stream_url:
                 cookie_file = _write_cookie_file()
                 try:
                     stream_url, ext, err = _extract_via_ytdlp(url, cookie_file)
-                    title = title or 'audio'
                     if not stream_url:
-                        self._json_error(500, err or 'Could not extract audio stream. Please add YouTube cookies.')
+                        self._json_error(
+                            500,
+                            err or 'Could not extract audio stream. Please add YouTube cookies via the instructions below.'
+                        )
                         return
                 finally:
                     if cookie_file and os.path.exists(cookie_file):
@@ -181,7 +225,7 @@ class handler(BaseHTTPRequestHandler):
             response_body = json.dumps({
                 'stream_url': stream_url,
                 'ext': ext,
-                'title': title,
+                'title': title or 'audio',
             }).encode()
 
             self.send_response(200)
