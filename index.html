@@ -21,7 +21,7 @@
       border-radius: 16px;
       padding: 40px;
       width: 100%;
-      max-width: 560px;
+      max-width: 580px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     }
     h1 {
@@ -68,10 +68,12 @@
       border-radius: 8px;
       font-size: 0.88rem;
       display: none;
+      line-height: 1.5;
     }
     .status.info { background: #1e3a5f; color: #7ec8e3; display: block; }
     .status.success { background: #1a3a2e; color: #6fcf97; display: block; }
     .status.error { background: #3a1a1e; color: #eb5757; display: block; }
+    .status.warning { background: #3a2a0e; color: #f4a261; display: block; }
     .link-container { margin-top: 16px; }
     .download-link {
       display: inline-block;
@@ -86,6 +88,20 @@
     }
     .download-link:hover { opacity: 0.85; }
     .note { margin-top: 24px; font-size: 0.78rem; color: #555; text-align: center; }
+    .cookie-hint {
+      margin-top: 16px;
+      padding: 14px;
+      background: #1a1a0e;
+      border: 1px solid #f4a261;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      color: #f4a261;
+      display: none;
+    }
+    .cookie-hint.show { display: block; }
+    .cookie-hint strong { color: #fff; }
+    .cookie-hint ol { margin-left: 16px; margin-top: 6px; }
+    .cookie-hint li { margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -123,6 +139,20 @@
     <button id="downloadBtn" onclick="startDownload()">Download Audio</button>
     <div id="status" class="status"></div>
     <div id="linkContainer" class="link-container"></div>
+
+    <div id="cookieHint" class="cookie-hint">
+      <strong>YouTube Bot Detection Triggered</strong><br>
+      YouTube is blocking server-side requests. To fix this, add your YouTube cookies to the app:
+      <ol>
+        <li>Install the <strong>"Get cookies.txt LOCALLY"</strong> extension in Chrome</li>
+        <li>Go to <strong>youtube.com</strong> while logged in</li>
+        <li>Click the extension and export cookies as <strong>Netscape format</strong></li>
+        <li>Go to <strong>Vercel Dashboard &rarr; Environment Variables</strong></li>
+        <li>Add variable: Key = <code>YOUTUBE_COOKIES</code>, Value = paste cookie file contents</li>
+        <li>Redeploy the app</li>
+      </ol>
+    </div>
+
     <p class="note">For personal use only. Respect YouTube's Terms of Service and copyright laws.</p>
   </div>
 
@@ -134,8 +164,10 @@
       const bitrate = document.getElementById('bitrate').value;
       const btn = document.getElementById('downloadBtn');
       const linkContainer = document.getElementById('linkContainer');
+      const cookieHint = document.getElementById('cookieHint');
 
       linkContainer.innerHTML = '';
+      cookieHint.classList.remove('show');
 
       if (!url) {
         showStatus('Please enter a YouTube URL.', 'error');
@@ -155,7 +187,14 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.detail || 'Server error');
+          const msg = data.detail || 'Server error';
+          if (msg.toLowerCase().includes('sign in') || msg.toLowerCase().includes('bot') || msg.toLowerCase().includes('cookie')) {
+            showStatus('YouTube bot detection triggered. See instructions below to fix this.', 'warning');
+            cookieHint.classList.add('show');
+          } else {
+            showStatus('Error: ' + msg, 'error');
+          }
+          return;
         }
 
         const { stream_url, ext, title } = data;
@@ -164,8 +203,7 @@
           throw new Error('No stream URL returned from server.');
         }
 
-        // Show the download link — browser fetches audio directly from YouTube CDN
-        showStatus('Stream URL extracted! Click below to download your audio.', 'success');
+        showStatus(`Stream extracted for "${title || dlFilename}"! Your download should start automatically.`, 'success');
 
         const a = document.createElement('a');
         a.href = stream_url;
@@ -173,10 +211,8 @@
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         a.className = 'download-link';
-        a.textContent = `Download ${dlFilename}.${ext || format}`;
+        a.textContent = `Download: ${dlFilename}.${ext || format}`;
         linkContainer.appendChild(a);
-
-        // Auto-trigger
         a.click();
 
       } catch (e) {
