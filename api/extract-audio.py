@@ -1,6 +1,5 @@
 import json
-import os
-import tempfile
+import urllib.request
 from http.server import BaseHTTPRequestHandler
 import yt_dlp
 
@@ -25,38 +24,36 @@ class handler(BaseHTTPRequestHandler):
                 self._json_error(400, 'URL is required')
                 return
 
-            tmp_dir = tempfile.mkdtemp()
-            output_template = os.path.join(tmp_dir, f'{filename}.%(ext)s')
-
-            # Download best audio WITHOUT ffmpeg post-processing
-            # This downloads the native audio stream (webm or m4a)
+            # Extract info only - get the direct stream URL without downloading
             ydl_opts = {
                 'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
-                'outtmpl': output_template,
                 'quiet': True,
                 'noplaylist': True,
                 'no_warnings': True,
+                'skip_download': True,  # Don't download, just get URL
             }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                ext = info.get('ext', 'm4a')
+                info = ydl.extract_info(url, download=False)
 
-            output_file = os.path.join(tmp_dir, f'{filename}.{ext}')
+            # Get the direct stream URL
+            stream_url = info.get('url')
+            ext = info.get('ext', 'm4a')
 
-            if not os.path.exists(output_file):
-                # Try to find whatever file was downloaded
-                files = os.listdir(tmp_dir)
-                if not files:
-                    self._json_error(500, 'No output file found after download')
-                    return
-                output_file = os.path.join(tmp_dir, files[0])
-                ext = files[0].split('.')[-1]
+            if not stream_url:
+                self._json_error(500, 'Could not extract stream URL')
+                return
 
-            with open(output_file, 'rb') as f:
-                audio_data = f.read()
+            # Stream the audio directly from YouTube CDN to the client
+            req = urllib.request.Request(
+                stream_url,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            )
+            with urllib.request.urlopen(req, timeout=30) as audio_response:
+                audio_data = audio_response.read()
 
-            # Set correct content type
             content_types = {
                 'm4a': 'audio/mp4',
                 'webm': 'audio/webm',
