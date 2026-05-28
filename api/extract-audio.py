@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 import urllib.request
 from http.server import BaseHTTPRequestHandler
@@ -9,37 +10,31 @@ INVIDIOUS_INSTANCES = [
     'https://inv.nadeko.net',
     'https://invidious.nerdvpn.de',
     'https://invidious.privacydev.net',
+    'https://vid.puffyan.us',
 ]
 
 
-def _write_cookie_file():
-    """Write YOUTUBE_COOKIES env var (Netscape format) to a temp file."""
-    cookie_data = os.environ.get('YOUTUBE_COOKIES', '').strip()
-    if not cookie_data:
-        return None
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
-                                      delete=False, prefix='yt_cookies_')
-    if not cookie_data.startswith('# Netscape'):
-        tmp.write('# Netscape HTTP Cookie File\n')
-    tmp.write(cookie_data)
-    tmp.flush()
-    tmp.close()
-    return tmp.name
+def _get_video_id(url):
+    patterns = [
+        r'(?:v=|/)([0-9A-Za-z_-]{11})(?:[&?#]|$)',
+        r'youtu\.be/([0-9A-Za-z_-]{11})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _extract_via_invidious(video_id):
-    """Try to get audio stream URL from Invidious API."""
+    """Try Invidious API first - fastest, no bot detection."""
     for instance in INVIDIOUS_INSTANCES:
         try:
             api_url = f'{instance}/api/v1/videos/{video_id}?fields=adaptiveFormats,title'
-            req = urllib.request.Request(
-                api_url,
-                headers={'User-Agent': 'Mozilla/5.0'},
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read())
             title = data.get('title', 'audio')
-            # Find best audio-only adaptive format
             best = None
             for fmt in data.get('adaptiveFormats', []):
                 if fmt.get('type', '').startswith('audio/'):
@@ -47,7 +42,6 @@ def _extract_via_invidious(video_id):
                         best = fmt
             if best:
                 raw_url = best.get('url', '')
-                # Invidious proxies the URL - construct direct YouTube URL
                 stream_url = f'{instance}{raw_url}' if raw_url.startswith('/') else raw_url
                 ext = 'webm' if 'webm' in best.get('type', '') else 'm4a'
                 return stream_url, ext, title
@@ -56,18 +50,17 @@ def _extract_via_invidious(video_id):
     return None, None, None
 
 
-def _get_video_id(url):
-    """Extract video ID from YouTube URL."""
-    import re
-    patterns = [
-        r'(?:v=|/)([0-9A-Za-z_-]{11}).*',
-        r'youtu\.be/([0-9A-Za-z_-]{11})',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
+def _write_cookie_file():
+    cookie_data = os.environ.get('YOUTUBE_COOKIES', '').strip()
+    if not cookie_data:
+        return None
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, prefix='yt_')
+    if not cookie_data.startswith('# Netscape'):
+        tmp.write('# Netscape HTTP Cookie File\n')
+    tmp.write(cookie_data)
+    tmp.flush()
+    tmp.close()
+    return tmp.name
 
 
 class handler(BaseHTTPRequestHandler):
@@ -86,73 +79,58 @@ class handler(BaseHTTPRequestHandler):
                 self._json_error(400, 'URL is required')
                 return
 
-            cookie_file = _write_cookie_file()
-
-            # Try yt-dlp with multiple player clients
-            clients_to_try = [
-                ['tv_embedded'],
-                ['android_vr'],
-                ['android'],
-                ['ios'],
-                ['web'],
-            ]
-
-            info = None
-            last_error = None
-
-            for clients in clients_to_try:
-                try:
-                    ydl_opts = {
-                        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
-                        'quiet': True,
-                        'noplaylist': True,
-                        'no_warnings': True,
-                        'extractor_args': {
-                            'youtube': {
-                                'player_client': clients,
-                            }
-                        },
-                        'socket_timeout': 12,
-                    }
-                    if cookie_file:
-                        ydl_opts['cookiefile'] = cookie_file
-
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                    break
-                except Exception as e:
-                    last_error = str(e)
-                    info = None
-                    continue
-
-            if cookie_file and os.path.exists(cookie_file):
-                os.unlink(cookie_file)
-
+            video_id = _get_video_id(url)
             stream_url = None
             ext = 'm4a'
             title = 'audio'
 
-            if info is not None:
-                formats = info.get('formats', [])
-                for f in reversed(formats):
-                    if f.get('vcodec') == 'none' and f.get('url'):
-                        stream_url = f['url']
-                        ext = f.get('ext', 'm4a')
-                        break
+            # Step 1: Try Invidious first (fast, no bot detection)
+            if video_id:
+                stream_url, ext, title = _extract_via_invidious(video_id)
+
+            # Step 2: Fallback to yt-dlp if Invidious fails
+            if not stream_url:
+                cookie_file = _write_cookie_file()
+                last_error = None
+
+                for clients in [['tv_embedded'], ['android_vr'], ['ios']]:
+                    try:
+                        ydl_opts = {
+                            'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
+                            'quiet': True,
+                            'noplaylist': True,
+                            'no_warnings': True,
+                            'extractor_args': {'youtube': {'player_client': clients}},
+                            'socket_timeout': 8,
+                        }
+                        if cookie_file:
+                            ydl_opts['cookiefile'] = cookie_file
+
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+
+                        formats = info.get('formats', [])
+                        for f in reversed(formats):
+                            if f.get('vcodec') == 'none' and f.get('url'):
+                                stream_url = f['url']
+                                ext = f.get('ext', 'm4a')
+                                break
+                        if not stream_url:
+                            stream_url = info.get('url')
+                            ext = info.get('ext', 'm4a')
+                        title = info.get('title', 'audio')
+                        if stream_url:
+                            break
+                    except Exception as e:
+                        last_error = str(e)
+                        continue
+
+                if cookie_file and os.path.exists(cookie_file):
+                    os.unlink(cookie_file)
+
                 if not stream_url:
-                    stream_url = info.get('url')
-                    ext = info.get('ext', 'm4a')
-                title = info.get('title', 'audio')
-
-            # Fallback: try Invidious API
-            if not stream_url:
-                video_id = _get_video_id(url)
-                if video_id:
-                    stream_url, ext, title = _extract_via_invidious(video_id)
-
-            if not stream_url:
-                self._json_error(500, last_error or 'Could not extract stream URL')
-                return
+                    self._json_error(500, last_error or 'Could not extract audio stream')
+                    return
 
             response_body = json.dumps({
                 'stream_url': stream_url,
