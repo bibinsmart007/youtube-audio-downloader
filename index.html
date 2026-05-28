@@ -72,15 +72,6 @@
     .status.info { background: #1e3a5f; color: #7ec8e3; display: block; }
     .status.success { background: #1a3a2e; color: #6fcf97; display: block; }
     .status.error { background: #3a1a1e; color: #eb5757; display: block; }
-    .note {
-      margin-top: 24px;
-      padding: 12px;
-      border-radius: 8px;
-      background: #111;
-      font-size: 0.8rem;
-      color: #777;
-      line-height: 1.5;
-    }
   </style>
 </head>
 <body>
@@ -117,10 +108,6 @@
 
     <button id="downloadBtn" onclick="startDownload()">Download Audio</button>
     <div class="status" id="status"></div>
-
-    <div class="note">
-      Requires a running backend at <code>http://localhost:8000</code>. See <code>server.py</code> to start the FastAPI backend.
-    </div>
   </div>
 
   <script>
@@ -138,10 +125,10 @@
       }
 
       btn.disabled = true;
-      showStatus('Sending request to backend...', 'info');
+      showStatus('Processing... this may take 30-60 seconds.', 'info');
 
       try {
-        const response = await fetch('http://localhost:8000/api/extract-audio', {
+        const response = await fetch('/api/extract-audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url, filename, format, bitrate: parseInt(bitrate) })
