@@ -1,6 +1,24 @@
 import json
+import os
+import tempfile
 from http.server import BaseHTTPRequestHandler
 import yt_dlp
+
+
+def _write_cookie_file():
+    """Write YOUTUBE_COOKIES env var (Netscape format) to a temp file."""
+    cookie_data = os.environ.get('YOUTUBE_COOKIES', '').strip()
+    if not cookie_data:
+        return None
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
+                                      delete=False, prefix='yt_cookies_')
+    # Ensure the Netscape header is present
+    if not cookie_data.startswith('# Netscape'):
+        tmp.write('# Netscape HTTP Cookie File\n')
+    tmp.write(cookie_data)
+    tmp.flush()
+    tmp.close()
+    return tmp.name
 
 
 class handler(BaseHTTPRequestHandler):
@@ -18,6 +36,8 @@ class handler(BaseHTTPRequestHandler):
             if not url:
                 self._json_error(400, 'URL is required')
                 return
+
+            cookie_file = _write_cookie_file()
 
             # Try multiple player clients in order to bypass bot detection
             clients_to_try = [
@@ -41,11 +61,13 @@ class handler(BaseHTTPRequestHandler):
                         'extractor_args': {
                             'youtube': {
                                 'player_client': clients,
-                                'skip': ['hls', 'dash'],
                             }
                         },
                         'socket_timeout': 15,
                     }
+                    if cookie_file:
+                        ydl_opts['cookiefile'] = cookie_file
+
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
                     break  # success
@@ -53,6 +75,10 @@ class handler(BaseHTTPRequestHandler):
                     last_error = str(e)
                     info = None
                     continue
+
+            # Clean up temp cookie file
+            if cookie_file and os.path.exists(cookie_file):
+                os.unlink(cookie_file)
 
             if info is None:
                 self._json_error(500, last_error or 'Failed to extract info')
