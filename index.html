@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Audio Downloader</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f0f0f;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #1a1a2e;
+      border-radius: 16px;
+      padding: 40px;
+      width: 100%;
+      max-width: 560px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #e63946, #f4a261);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    p.sub { color: #aaa; margin-bottom: 28px; font-size: 0.9rem; }
+    label { display: block; margin-bottom: 6px; font-size: 0.85rem; color: #ccc; }
+    input, select {
+      width: 100%;
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #0f0f0f;
+      color: #fff;
+      font-size: 0.95rem;
+      margin-bottom: 18px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    input:focus, select:focus { border-color: #e63946; }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    button {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #e63946, #f4a261);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.88; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status {
+      margin-top: 18px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      display: none;
+    }
+    .status.info { background: #1e3a5f; color: #7ec8e3; display: block; }
+    .status.success { background: #1a3a2e; color: #6fcf97; display: block; }
+    .status.error { background: #3a1a1e; color: #eb5757; display: block; }
+    .note {
+      margin-top: 24px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #111;
+      font-size: 0.8rem;
+      color: #777;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>YouTube Audio Downloader</h1>
+    <p class="sub">Paste a YouTube URL to extract and download the audio track.</p>
+
+    <label for="url">YouTube URL</label>
+    <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." />
+
+    <label for="filename">Output Filename (optional)</label>
+    <input type="text" id="filename" placeholder="my-audio" />
+
+    <div class="row">
+      <div>
+        <label for="format">Format</label>
+        <select id="format">
+          <option value="mp3">MP3</option>
+          <option value="m4a">M4A</option>
+          <option value="wav">WAV</option>
+          <option value="ogg">OGG</option>
+        </select>
+      </div>
+      <div>
+        <label for="bitrate">Bitrate</label>
+        <select id="bitrate">
+          <option value="128">128 kbps</option>
+          <option value="192" selected>192 kbps</option>
+          <option value="256">256 kbps</option>
+          <option value="320">320 kbps</option>
+        </select>
+      </div>
+    </div>
+
+    <button id="downloadBtn" onclick="startDownload()">Download Audio</button>
+    <div class="status" id="status"></div>
+
+    <div class="note">
+      Requires a running backend at <code>http://localhost:8000</code>. See <code>server.py</code> to start the FastAPI backend.
+    </div>
+  </div>
+
+  <script>
+    async function startDownload() {
+      const url = document.getElementById('url').value.trim();
+      const filename = document.getElementById('filename').value.trim() || 'audio';
+      const format = document.getElementById('format').value;
+      const bitrate = document.getElementById('bitrate').value;
+      const btn = document.getElementById('downloadBtn');
+      const status = document.getElementById('status');
+
+      if (!url) {
+        showStatus('Please enter a YouTube URL.', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      showStatus('Sending request to backend...', 'info');
+
+      try {
+        const response = await fetch('http://localhost:8000/api/extract-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, filename, format, bitrate: parseInt(bitrate) })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.detail || 'Server error');
+        }
+
+        const blob = await response.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${filename}.${format}`;
+        a.click();
+        showStatus('Download started successfully!', 'success');
+      } catch (e) {
+        showStatus('Error: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function showStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status ' + type;
+    }
+  </script>
+</body>
+</html>
