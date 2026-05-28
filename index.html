@@ -42,66 +42,72 @@
       color: #fff;
       font-size: 0.95rem;
       margin-bottom: 18px;
-      outline: none;
-      transition: border 0.2s;
     }
-    input:focus, select:focus { border-color: #e63946; }
-    .row { display: flex; gap: 12px; }
+    input:focus, select:focus { outline: none; border-color: #e63946; }
+    .row { display: flex; gap: 16px; }
     .row > div { flex: 1; }
-    button {
+    .btn {
       width: 100%;
       padding: 14px;
+      border-radius: 10px;
       border: none;
-      border-radius: 8px;
       background: linear-gradient(135deg, #e63946, #f4a261);
       color: #fff;
       font-size: 1rem;
       font-weight: 600;
       cursor: pointer;
       transition: opacity 0.2s;
+      margin-top: 4px;
     }
-    button:hover { opacity: 0.88; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .status {
-      margin-top: 18px;
+      margin-top: 16px;
       padding: 12px 16px;
       border-radius: 8px;
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       display: none;
-      line-height: 1.5;
     }
     .status.info { background: #1e3a5f; color: #7ec8e3; display: block; }
-    .status.success { background: #1a3a2e; color: #6fcf97; display: block; }
-    .status.error { background: #3a1a1e; color: #eb5757; display: block; }
-    .status.warning { background: #3a2a0e; color: #f4a261; display: block; }
-    .link-container { margin-top: 16px; }
+    .status.success { background: #1a3a2a; color: #6fcf97; display: block; }
+    .status.error { background: #3a1a1a; color: #eb5757; display: block; }
+    .status.warning { background: #3a2e1a; color: #f2c94c; display: block; }
     .download-link {
-      display: inline-block;
-      margin-top: 10px;
-      padding: 10px 20px;
-      background: #e63946;
-      color: #fff;
+      display: none;
+      margin-top: 12px;
+      padding: 12px 16px;
+      background: #16213e;
       border-radius: 8px;
-      text-decoration: none;
-      font-weight: 600;
+      color: #6fcf97;
       font-size: 0.9rem;
     }
-    .download-link:hover { opacity: 0.85; }
-    .note { margin-top: 24px; font-size: 0.78rem; color: #555; text-align: center; }
+    .download-link a {
+      color: #6fcf97;
+      font-weight: 600;
+      word-break: break-all;
+    }
     .cookie-hint {
-      margin-top: 16px;
-      padding: 14px;
-      background: #1a1a0e;
-      border: 1px solid #f4a261;
-      border-radius: 8px;
-      font-size: 0.82rem;
-      color: #f4a261;
       display: none;
+      margin-top: 16px;
+      padding: 16px;
+      background: #2a1f0a;
+      border: 1px solid #f2c94c44;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      color: #ccc;
+      line-height: 1.6;
     }
     .cookie-hint.show { display: block; }
-    .cookie-hint strong { color: #fff; }
-    .cookie-hint ol { margin-left: 16px; margin-top: 6px; }
-    .cookie-hint li { margin-bottom: 4px; }
+    .cookie-hint strong { color: #f2c94c; }
+    .cookie-hint ol { padding-left: 20px; margin-top: 8px; }
+    .cookie-hint li { margin-bottom: 6px; }
+    .cookie-hint code {
+      background: #1a1400;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      color: #f4a261;
+    }
+    footer { color: #555; font-size: 0.78rem; text-align: center; margin-top: 24px; }
   </style>
 </head>
 <body>
@@ -109,16 +115,16 @@
     <h1>YouTube Audio Downloader</h1>
     <p class="sub">Paste a YouTube URL to extract and download the audio track.</p>
 
-    <label for="url">YouTube URL</label>
-    <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." />
+    <label for="urlInput">YouTube URL</label>
+    <input type="url" id="urlInput" placeholder="https://www.youtube.com/watch?v=..." />
 
-    <label for="filename">Output Filename (optional)</label>
-    <input type="text" id="filename" placeholder="my-audio" />
+    <label for="filenameInput">Output Filename (optional)</label>
+    <input type="text" id="filenameInput" placeholder="my-audio" />
 
     <div class="row">
       <div>
-        <label for="format">Format</label>
-        <select id="format">
+        <label for="formatSelect">Format</label>
+        <select id="formatSelect">
           <option value="mp3">MP3</option>
           <option value="m4a">M4A</option>
           <option value="webm">WebM</option>
@@ -126,8 +132,8 @@
         </select>
       </div>
       <div>
-        <label for="bitrate">Bitrate</label>
-        <select id="bitrate">
+        <label for="bitrateSelect">Bitrate</label>
+        <select id="bitrateSelect">
           <option value="128">128 kbps</option>
           <option value="192" selected>192 kbps</option>
           <option value="256">256 kbps</option>
@@ -136,60 +142,72 @@
       </div>
     </div>
 
-    <button id="downloadBtn" onclick="startDownload()">Download Audio</button>
-    <div id="status" class="status"></div>
-    <div id="linkContainer" class="link-container"></div>
+    <button class="btn" id="dlBtn" onclick="startDownload()">Download Audio</button>
 
-    <div id="cookieHint" class="cookie-hint">
-      <strong>YouTube Bot Detection Triggered</strong><br>
-      YouTube is blocking server-side requests. To fix this, add your YouTube cookies to the app:
+    <div class="status" id="status"></div>
+
+    <div class="download-link" id="downloadBox">
+      Stream ready &mdash; <a id="downloadAnchor" target="_blank" rel="noopener">Click here to open / save audio</a>
+      <br/><small style="color:#aaa;margin-top:6px;display:block;">Tip: right-click the link &rarr; "Save link as" to download directly.</small>
+    </div>
+
+    <div class="cookie-hint" id="cookieHint">
+      <strong>&#x26A0; YouTube Bot Detection Triggered</strong>
+      <p style="margin-top:8px;">YouTube is blocking anonymous requests. Fix it by supplying your own cookies:</p>
       <ol>
-        <li>Install the <strong>"Get cookies.txt LOCALLY"</strong> extension in Chrome</li>
-        <li>Go to <strong>youtube.com</strong> while logged in</li>
-        <li>Click the extension and export cookies as <strong>Netscape format</strong></li>
-        <li>Go to <strong>Vercel Dashboard &rarr; Environment Variables</strong></li>
-        <li>Add variable: Key = <code>YOUTUBE_COOKIES</code>, Value = paste cookie file contents</li>
-        <li>Redeploy the app</li>
+        <li>Install the <strong>"Get cookies.txt LOCALLY"</strong> extension in Chrome/Firefox.</li>
+        <li>Go to <a href="https://www.youtube.com" target="_blank" style="color:#f4a261;">youtube.com</a> while logged into your Google account.</li>
+        <li>Click the extension icon and export cookies as <strong>Netscape format</strong>.</li>
+        <li>Go to your <strong>Vercel Dashboard &rarr; Project &rarr; Settings &rarr; Environment Variables</strong>.</li>
+        <li>Add: Key = <code>YOUTUBE_COOKIES</code>, Value = <em>paste the full cookie file contents</em>.</li>
+        <li>Click <strong>Save</strong>, then go to <strong>Deployments</strong> and redeploy the latest build.</li>
       </ol>
     </div>
 
-    <p class="note">For personal use only. Respect YouTube's Terms of Service and copyright laws.</p>
+    <footer>For personal use only. Respect YouTube&rsquo;s Terms of Service and copyright laws.</footer>
   </div>
 
   <script>
     async function startDownload() {
-      const url = document.getElementById('url').value.trim();
-      const dlFilename = document.getElementById('filename').value.trim() || 'audio';
-      const format = document.getElementById('format').value;
-      const bitrate = document.getElementById('bitrate').value;
-      const btn = document.getElementById('downloadBtn');
-      const linkContainer = document.getElementById('linkContainer');
+      const urlInput = document.getElementById('urlInput');
+      const filenameInput = document.getElementById('filenameInput');
+      const format = document.getElementById('formatSelect').value;
+      const bitrate = parseInt(document.getElementById('bitrateSelect').value);
+      const btn = document.getElementById('dlBtn');
       const cookieHint = document.getElementById('cookieHint');
+      const downloadBox = document.getElementById('downloadBox');
+      const downloadAnchor = document.getElementById('downloadAnchor');
 
-      linkContainer.innerHTML = '';
-      cookieHint.classList.remove('show');
-
+      const url = urlInput.value.trim();
       if (!url) {
         showStatus('Please enter a YouTube URL.', 'error');
         return;
       }
 
+      // Determine output filename
+      const dlFilename = filenameInput.value.trim() || 'audio';
+
       btn.disabled = true;
-      showStatus('Extracting audio stream... please wait up to 30 seconds.', 'info');
+      cookieHint.classList.remove('show');
+      downloadBox.style.display = 'none';
+      showStatus('Extracting audio stream\u2026 this may take up to 30s.', 'info');
 
       try {
         const response = await fetch('/api/extract-audio', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, filename: dlFilename, format, bitrate: parseInt(bitrate) })
+          body: JSON.stringify({ url, filename: dlFilename, format, bitrate }),
         });
 
         const data = await response.json();
 
         if (!response.ok) {
           const msg = data.detail || 'Server error';
-          if (msg.toLowerCase().includes('sign in') || msg.toLowerCase().includes('bot') || msg.toLowerCase().includes('cookie')) {
-            showStatus('YouTube bot detection triggered. See instructions below to fix this.', 'warning');
+          const lower = msg.toLowerCase();
+          if (lower.includes('sign in') || lower.includes('bot') ||
+              lower.includes('cookie') || lower.includes('confirm') ||
+              lower.includes('429') || lower.includes('forbidden')) {
+            showStatus('YouTube bot detection triggered. See the instructions below.', 'warning');
             cookieHint.classList.add('show');
           } else {
             showStatus('Error: ' + msg, 'error');
@@ -198,25 +216,18 @@
         }
 
         const { stream_url, ext, title } = data;
+        const finalExt = ext || format;
+        const filename = `${dlFilename}.${finalExt}`;
 
-        if (!stream_url) {
-          throw new Error('No stream URL returned from server.');
-        }
+        // Show a clickable link — browser opens/downloads the stream URL directly.
+        // "Save link as" gives the cleanest download experience across browsers.
+        downloadAnchor.href = stream_url;
+        downloadAnchor.textContent = filename;
+        downloadBox.style.display = 'block';
+        showStatus(`Stream ready for "${title}". Click the link below to open or save the audio.`, 'success');
 
-        showStatus(`Stream extracted for "${title || dlFilename}"! Your download should start automatically.`, 'success');
-
-        const a = document.createElement('a');
-        a.href = stream_url;
-        a.download = `${dlFilename}.${ext || format}`;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.className = 'download-link';
-        a.textContent = `Download: ${dlFilename}.${ext || format}`;
-        linkContainer.appendChild(a);
-        a.click();
-
-      } catch (e) {
-        showStatus('Error: ' + e.message, 'error');
+      } catch (err) {
+        showStatus('Network error: ' + err.message, 'error');
       } finally {
         btn.disabled = false;
       }
