@@ -47,12 +47,23 @@ def _get_video_id(url):
     return None
 
 
+def _get_proxy():
+    """Read optional PROXY_URL env var. Format: http://user:pass@host:port or socks5://host:port"""
+    return os.environ.get('PROXY_URL', '').strip() or None
+
+
 def _fetch_json(url, timeout=8, data=None, headers=None):
     h = {'User-Agent': 'Mozilla/5.0 (compatible; AudioBot/1.0)'}
     if headers:
         h.update(headers)
+    proxy = _get_proxy()
+    if proxy:
+        proxy_handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
+        opener = urllib.request.build_opener(proxy_handler)
+    else:
+        opener = urllib.request.build_opener()
     req = urllib.request.Request(url, data=data, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with opener.open(req, timeout=timeout) as resp:
         if resp.status != 200:
             return None
         return json.loads(resp.read())
@@ -110,7 +121,7 @@ def _extract_via_piped(video_id):
 
 
 def _extract_via_cobalt(video_id):
-    """Try cobalt.tools API - a privacy-respecting no-auth downloader."""
+    """Try cobalt.tools API."""
     url = f'https://www.youtube.com/watch?v={video_id}'
     try:
         payload = json.dumps({
@@ -129,7 +140,7 @@ def _extract_via_cobalt(video_id):
             timeout=15,
         )
         if data and data.get('url'):
-            return data['url'], 'm4a', data.get('filename', 'audio').rstrip('.m4a')
+            return data['url'], 'm4a', data.get('filename', 'audio').replace('.m4a', '')
     except Exception:
         pass
     return None, None, None
@@ -150,8 +161,9 @@ def _write_cookie_file():
 
 
 def _extract_via_ytdlp(url, cookie_file=None):
-    """Try multiple yt-dlp client strategies."""
+    """Try multiple yt-dlp client strategies, with optional proxy."""
     last_error = None
+    proxy = _get_proxy()
     for clients in CLIENT_STRATEGIES:
         try:
             ydl_opts = {
@@ -177,6 +189,8 @@ def _extract_via_ytdlp(url, cookie_file=None):
             }
             if cookie_file:
                 ydl_opts['cookiefile'] = cookie_file
+            if proxy:
+                ydl_opts['proxy'] = proxy
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -238,7 +252,7 @@ class handler(BaseHTTPRequestHandler):
             if not stream_url and video_id:
                 stream_url, ext, title = _extract_via_cobalt(video_id)
 
-            # Step 4: Fallback to yt-dlp
+            # Step 4: Fallback to yt-dlp (with optional proxy + optional cookies)
             if not stream_url:
                 cookie_file = _write_cookie_file()
                 try:
