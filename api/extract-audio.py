@@ -3,6 +3,7 @@ import os
 import re
 import tempfile
 import urllib.request
+import urllib.parse
 from http.server import BaseHTTPRequestHandler
 import yt_dlp
 
@@ -16,7 +17,7 @@ INVIDIOUS_INSTANCES = [
     'https://invidious.f5.si',
 ]
 
-# Piped API instances (no auth needed, returns audio stream URLs)
+# Piped API instances
 PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
     'https://piped-api.garudalinux.org',
@@ -46,11 +47,11 @@ def _get_video_id(url):
     return None
 
 
-def _fetch_json(url, timeout=8):
-    req = urllib.request.Request(
-        url,
-        headers={'User-Agent': 'Mozilla/5.0 (compatible; AudioBot/1.0)'}
-    )
+def _fetch_json(url, timeout=8, data=None, headers=None):
+    h = {'User-Agent': 'Mozilla/5.0 (compatible; AudioBot/1.0)'}
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(url, data=data, headers=h)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         if resp.status != 200:
             return None
@@ -58,7 +59,7 @@ def _fetch_json(url, timeout=8):
 
 
 def _extract_via_invidious(video_id):
-    """Try Invidious API - no bot detection needed."""
+    """Try Invidious API - no bot detection."""
     for instance in INVIDIOUS_INSTANCES:
         try:
             data = _fetch_json(
@@ -83,7 +84,7 @@ def _extract_via_invidious(video_id):
 
 
 def _extract_via_piped(video_id):
-    """Try Piped API - another no-auth alternative to Invidious."""
+    """Try Piped API."""
     for instance in PIPED_INSTANCES:
         try:
             data = _fetch_json(f'{instance}/streams/{video_id}')
@@ -108,6 +109,32 @@ def _extract_via_piped(video_id):
     return None, None, None
 
 
+def _extract_via_cobalt(video_id):
+    """Try cobalt.tools API - a privacy-respecting no-auth downloader."""
+    url = f'https://www.youtube.com/watch?v={video_id}'
+    try:
+        payload = json.dumps({
+            'url': url,
+            'audioFormat': 'best',
+            'downloadMode': 'audio',
+            'quality': '320',
+        }).encode()
+        data = _fetch_json(
+            'https://api.cobalt.tools/',
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            timeout=15,
+        )
+        if data and data.get('url'):
+            return data['url'], 'm4a', data.get('filename', 'audio').rstrip('.m4a')
+    except Exception:
+        pass
+    return None, None, None
+
+
 def _write_cookie_file():
     """Write YOUTUBE_COOKIES env var to a temp Netscape cookie file."""
     cookie_data = os.environ.get('YOUTUBE_COOKIES', '').strip()
@@ -123,7 +150,7 @@ def _write_cookie_file():
 
 
 def _extract_via_ytdlp(url, cookie_file=None):
-    """Try multiple yt-dlp client strategies to get a direct audio stream URL."""
+    """Try multiple yt-dlp client strategies."""
     last_error = None
     for clients in CLIENT_STRATEGIES:
         try:
@@ -203,11 +230,15 @@ class handler(BaseHTTPRequestHandler):
             if video_id:
                 stream_url, ext, title = _extract_via_invidious(video_id)
 
-            # Step 2: Try Piped API (another no-auth source)
+            # Step 2: Try Piped API
             if not stream_url and video_id:
                 stream_url, ext, title = _extract_via_piped(video_id)
 
-            # Step 3: Fallback to yt-dlp with multiple client strategies
+            # Step 3: Try Cobalt API
+            if not stream_url and video_id:
+                stream_url, ext, title = _extract_via_cobalt(video_id)
+
+            # Step 4: Fallback to yt-dlp
             if not stream_url:
                 cookie_file = _write_cookie_file()
                 try:
